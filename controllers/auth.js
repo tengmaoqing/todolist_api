@@ -1,11 +1,19 @@
 const jwt = require('jsonwebtoken')
+const { validationResult } = require('express-validator/check')
 const User = require('../model/user')
 const resMaker = require('./responsDataMaker')
 const config = require('../config')
+const { getTokenFromReq } = require('../helper/query')
 
 exports.login = async (req, res) => {
+  const errors = validationResult(req)
+  if (!errors.isEmpty()) {
+    res.json(resMaker(null, '10000', '参数校验失败', errors.array()))
+    return
+  }
+
   const user = await User.findOne({
-    name: req.body.name
+    email: req.body.email
   }).exec()
   if (!user) {
     res.json(resMaker(null, -1, '未找到用户'))
@@ -14,18 +22,42 @@ exports.login = async (req, res) => {
   if (user.password !== req.body.password) {
     return res.json(resMaker(null, '-1', '密码错误'))
   }
-
-  const token = jwt.sign(user, config.superSecret, {
+  
+  console.log(JSON.stringify(user))
+  jwt.sign(user.toJSON(), config.superSecret, {
     expiresIn : 60*60*24// 授权时效24小时
-  });
+  }, (err, token) => {
+    if (err) {
+      res.json(resMaker(null, '10000', '生成签名异常'))
+      return
+    }
+    res.json(resMaker({
+      token
+    }))
 
-  res.json({
-    token
+  })
+
+}
+ 
+exports.registry = (req, res) => {
+  const errors = validationResult(req)
+  if (!errors.isEmpty()) {
+    res.json(resMaker(null, '10000', '参数校验失败', errors.array()))
+    return
+  }
+  const { email, password } = req.body
+  const user = new User({
+    email: email,
+    password: password
+  })
+  user.save().then(() => {
+    res.json(resMaker())
+  }).catch(err => {
+    res.json(resMaker(null, '10000', '系统异常'))
   })
 }
 
-const getUserInfo = req => {
-  const token = req.body.token || req.query.token || req.headers['x-access-token'];
+const getUserInfo = token => {
   return new Promise((resolve, reject) => {
     if (!token) {
       resolve()
@@ -37,7 +69,7 @@ const getUserInfo = req => {
         reject(err)
         return false
       }
-    
+
       resolve(decoded)
       // next();
     })
@@ -45,23 +77,27 @@ const getUserInfo = req => {
 }
 
 exports.injectUser = (req, res, next) => {
-  getUserInfo(req).then(user => {
+  const token = getTokenFromReq(req)
+  getUserInfo(token).then(user => {
     if (user) {
-      req.decoded = user
+      req.userInfo = user
     }
+  }).catch(err => {
+
   }).finally(() => {
     next()
   })
 }
 
 exports.authUser = (req, res, next) => {
-  getUserInfo(req).then(user => {
-    if (!user) {
-      res.json(null, '40001', '没有token')
-      return
-    }
-    next()
-  }).catch(err => {
-    res.json(null, '40001', '无效的token')
-  })
+  const token = getTokenFromReq(req)
+  if (!token) {
+    res.json(resMaker(null, '40001', '没有token'))
+    return
+  }  
+  if (!req.userInfo) {
+    res.json(resMaker(null, '40001', '无效的token'))
+    return
+  }
+  next()
 }

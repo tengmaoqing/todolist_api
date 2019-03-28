@@ -1,4 +1,4 @@
-module.exports = (data = {}, status, msg) => {
+module.exports = (data = {}, status, msg, errors) => {
   if (data) {
     return {
       data,
@@ -10,6 +10,7 @@ module.exports = (data = {}, status, msg) => {
   return {
     data,
     status,
-    msg
+    msg,
+    errors
   }
 }
